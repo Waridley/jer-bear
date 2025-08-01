@@ -1,34 +1,53 @@
-use bevy::color::palettes::basic::{BLACK, BLUE, GRAY, GREEN, WHITE};
-use bevy::color::palettes::css::{DARK_GRAY, YELLOW};
+use bevy::asset::{AssetPath, UnapprovedPathMode, ron};
+use bevy::color::palettes::basic::{BLACK, BLUE, GREEN, WHITE};
+use bevy::color::palettes::css::YELLOW;
 use bevy::input::ButtonState;
 use bevy::input::mouse::{MouseButtonInput, MouseMotion, MouseWheel};
-use bevy::picking::pointer::{PointerAction, PointerInput};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use egui_extras::{Column, TableBuilder};
+use jeremy_bearimy::map::{LoadingMapHandle, MapPlugin};
 use jeremy_bearimy::*;
 use map::Map;
+use std::path::PathBuf;
 
 const HANDLE_GRAB_RADIUS: f32 = 8.0;
 
 fn main() {
 	App::new()
-		.add_plugins((DefaultPlugins, EguiPlugin::default()))
+		.add_plugins((
+			DefaultPlugins.set(AssetPlugin {
+				// Just for the editor during development
+				unapproved_path_mode: UnapprovedPathMode::Allow,
+				..default()
+			}),
+			EguiPlugin::default(),
+			MapPlugin,
+		))
 		.add_systems(Startup, setup)
-		.add_systems(Update, (draw_curve, input))
-		.add_systems(EguiPrimaryContextPass, draw_editor)
+		.add_systems(Update, (draw_curve, input).run_if(resource_exists::<Map>))
+		.add_systems(EguiPrimaryContextPass, draw_gui)
 		.run();
 }
 
-pub fn setup(mut cmds: Commands) {
+pub fn setup(mut cmds: Commands, server: Res<AssetServer>) {
 	cmds.spawn(Camera2d);
 	cmds.insert_resource(ClearColor(BLACK.into()));
-	cmds.insert_resource(Map::default());
 	cmds.insert_resource(DragState::default());
+
+	cmds.insert_resource(LoadingMapHandle(server.load::<Map>("map.ron")));
 }
 
-pub fn draw_editor(mut ctx: EguiContexts, mut map: ResMut<Map>, dragging: Res<DragState>) {
+pub fn draw_gui(
+	mut cmds: Commands,
+	mut ctx: EguiContexts,
+	map: Option<Res<Map>>,
+	dragging: Res<DragState>,
+	server: Res<AssetServer>,
+	loading: Option<Res<LoadingMapHandle>>,
+	mut save_opts: Local<SaveOptions>,
+) {
 	let ctx = ctx.ctx_mut().unwrap();
 	egui::Window::new("Hello").show(ctx, |ui| {
 		ui.label("Click to add point in highlighted segment.");
@@ -36,46 +55,89 @@ pub fn draw_editor(mut ctx: EguiContexts, mut map: ResMut<Map>, dragging: Res<Dr
 		ui.label("Scroll to zoom.");
 		ui.separator();
 		ui.label("Control points:");
-		ui.vertical(|ui| {
-			TableBuilder::new(ui)
-				.column(Column::auto())
-				.column(Column::auto())
-				.column(Column::auto())
-				.header(20.0, |mut header| {
-					header.col(|ui| {
-						ui.heading("Index");
-					});
-					header.col(|ui| {
-						ui.heading("X");
-					});
-					header.col(|ui| {
-						ui.heading("Y");
-					});
-				})
-				.body(|mut body| {
-					for (i, p) in map.control_points().iter().enumerate() {
-						body.row(16.0, |mut row| {
-							row.set_selected(dragging.point() == Some(i));
-							row.col(|ui| {
-								ui.label(i.to_string());
-							});
-							row.col(|ui| {
-								ui.label(format!("{:.2}", p.x));
-							});
-							row.col(|ui| {
-								ui.label(format!("{:.2}", p.y));
-							});
+		if let Some(map) = map {
+			ui.vertical(|ui| {
+				TableBuilder::new(ui)
+					.column(Column::auto())
+					.column(Column::auto())
+					.column(Column::auto())
+					.header(20.0, |mut header| {
+						header.col(|ui| {
+							ui.heading("Index");
 						});
-					}
-				})
-		});
-		ui.separator();
-		if ui.button("Reset").clicked() {
-			*map = Map::default();
+						header.col(|ui| {
+							ui.heading("X");
+						});
+						header.col(|ui| {
+							ui.heading("Y");
+						});
+					})
+					.body(|mut body| {
+						for (i, p) in map.control_points().iter().enumerate() {
+							body.row(16.0, |mut row| {
+								row.set_selected(dragging.point() == Some(i));
+								row.col(|ui| {
+									ui.label(i.to_string());
+								});
+								row.col(|ui| {
+									ui.label(format!("{:.2}", p.x));
+								});
+								row.col(|ui| {
+									ui.label(format!("{:.2}", p.y));
+								});
+							});
+						}
+					})
+			});
 		}
-		// egui_plot::Plot::new("my_plot").show(ui, |ui| {
-		// 	ui.line(egui_plot::Line::new(map.iter_positions(100).map(|p| [p.x, p.y])));
-		// });
+		ui.separator();
+		ui.horizontal(|ui| {
+			ui.label("File:");
+			if ui.button(format!("{}", save_opts.path.display())).clicked() {
+				let dialogue = rfd::FileDialog::new();
+				let dialogue = if let Some(dir) = save_opts.path.parent() {
+					info!("starting in {}", dir.display());
+					dialogue.set_directory(dir)
+				} else if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR")
+					.map(PathBuf::from)
+					.or_else(|_| std::env::current_dir())
+				{
+					let dir = dir.join("assets");
+					info!("starting in {}", dir.display());
+					dialogue.set_directory(dir.join("assets"))
+				} else {
+					warn!("Couldn't set directory");
+					dialogue
+				};
+				if let Some(path) = dialogue.pick_file() {
+					save_opts.path = path;
+				}
+			}
+		});
+		ui.horizontal(|ui| {
+			if ui.button("Load").clicked() {
+				cmds.insert_resource(LoadingMapHandle(
+					server.load::<Map>(save_opts.path.to_str().unwrap()),
+				));
+			}
+			if ui.button("Save").clicked() {
+				cmds.run_system_cached_with(save_map, save_opts.clone());
+			}
+			ui.checkbox(&mut save_opts.pretty, "Pretty");
+		});
+		if ui.button("Load Default").clicked() {
+			cmds.insert_resource(Map::default());
+		}
+		if let Some(loading) = loading {
+			ui.label(format!(
+				"Loading {}",
+				server
+					.get_path(&loading.0)
+					.as_ref()
+					.map(AssetPath::to_string)
+					.unwrap_or("[unknown path]".into())
+			));
+		}
 	});
 }
 
@@ -220,4 +282,45 @@ impl DragState {
 		self.point = Some(point);
 		self.interaction = Interaction::Hovered;
 	}
+}
+
+#[derive(Clone)]
+pub struct SaveOptions {
+	path: PathBuf,
+	pretty: bool,
+}
+
+impl Default for SaveOptions {
+	fn default() -> Self {
+		let dir = std::env::var("CARGO_MANIFEST_DIR")
+			.map(PathBuf::from)
+			.unwrap_or_else(|_| PathBuf::from("."))
+			.join("assets");
+		Self {
+			path: dir.join("map.ron"),
+			pretty: false,
+		}
+	}
+}
+
+pub fn save_map(opts: In<SaveOptions>, map: Res<Map>, reg: Res<AppTypeRegistry>) {
+	let reg = reg.read();
+	let serializer = bevy::reflect::serde::TypedReflectSerializer::new(&*map, &reg);
+
+	let Ok(mut file) =
+		std::fs::File::create(&opts.path).map_err(|e| error!("Failed to create file: {e}"))
+	else {
+		return;
+	};
+
+	let Ok(()) = if opts.pretty {
+		ron::ser::to_writer_pretty(&mut file, &serializer, ron::ser::PrettyConfig::default())
+	} else {
+		ron::ser::to_writer(&mut file, &serializer)
+	}
+	.map_err(|e| error!("Failed to write to file: {e}")) else {
+		return;
+	};
+
+	info!("Saved map to {}", opts.path.display());
 }
