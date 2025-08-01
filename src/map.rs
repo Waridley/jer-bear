@@ -4,6 +4,7 @@ use bevy::math::cubic_splines::InsufficientDataError;
 use bevy::prelude::*;
 use bevy::reflect::TypeRegistryArc;
 use serde::de::DeserializeSeed;
+use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
 pub struct MapPlugin;
@@ -54,6 +55,7 @@ impl Map {
 		&self,
 		gizmos: &mut Gizmos,
 		resolution: usize,
+		scale: f32,
 		curve_color: Option<Color>,
 		segment_color: Option<Color>,
 		closest_segment_color: Color,
@@ -82,17 +84,18 @@ impl Map {
 				closest_segment_color,
 			);
 		}
-		for p in &self.spline.control_points {
-			let color = if let Some(pos) = cursor_pos
-				&& pos.distance(*p) < grab_radius
-			{
+		let interactable = cursor_pos
+			.map(|pos| self.interactable_handle(pos, grab_radius * scale))
+			.unwrap_or(CurveHandle::None);
+		for (i, p) in self.spline.control_points.iter().enumerate() {
+			let color = if interactable == CurveHandle::CtrlPt(i) {
 				hovered_handle_color
 			} else if let Some(handle_color) = handle_color {
 				handle_color
 			} else {
 				continue;
 			};
-			gizmos.circle_2d(*p, 4.0, color);
+			gizmos.circle_2d(*p, 4.0 * scale, color);
 		}
 		if let Some(curve_color) = curve_color {
 			for [a, b] in self
@@ -105,6 +108,15 @@ impl Map {
 					Vec3::new(b.x, b.y, 0.0),
 					curve_color,
 				);
+			}
+
+			for (i, tue) in self.tuesdays.iter().enumerate() {
+				let color = if interactable == CurveHandle::Tuesday(i) {
+					hovered_handle_color
+				} else {
+					curve_color
+				};
+				gizmos.circle_2d(*tue, 4.0, color);
 			}
 		}
 	}
@@ -132,6 +144,7 @@ impl Map {
 	pub fn remove_point(&mut self, index: usize) -> Result<Vec2, usize> {
 		if self.spline.control_points.len() <= 2 {
 			// TODO: Create a new error type for this
+			// InsufficientDataError has private fields
 			return Err(self.spline.control_points.len());
 		}
 		let removed = self.spline.control_points.remove(index);
@@ -142,14 +155,49 @@ impl Map {
 		Ok(removed)
 	}
 
-	pub fn closest_control_point(&self, point: Vec2) -> Option<usize> {
+	pub fn closest_control_point(&self, point: Vec2) -> Option<(usize, f32)> {
 		self.spline
 			.control_points
 			.iter()
 			.copied()
 			.enumerate()
-			.min_by(|(_, a), (_, b)| a.distance(point).partial_cmp(&b.distance(point)).unwrap())
-			.map(|(i, _)| i)
+			.map(|(i, p)| (i, p.distance(point)))
+			.min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+	}
+
+	pub fn closest_tuesday(&self, point: Vec2) -> Option<(usize, f32)> {
+		self.tuesdays
+			.iter()
+			.copied()
+			.enumerate()
+			.map(|(i, p)| (i, p.distance(point)))
+			.min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+	}
+
+	pub fn closest_handle(&self, point: Vec2) -> (CurveHandle, f32) {
+		let pt = self.closest_control_point(point);
+		let tue = self.closest_tuesday(point);
+		match (pt, tue) {
+			(Some((h, hdist)), Some((t, tdist))) => {
+				if hdist < tdist {
+					(CurveHandle::CtrlPt(h), hdist)
+				} else {
+					(CurveHandle::Tuesday(t), tdist)
+				}
+			}
+			(Some((h, dist)), None) => (CurveHandle::CtrlPt(h), dist),
+			(None, Some((t, dist))) => (CurveHandle::Tuesday(t), dist),
+			(None, None) => (CurveHandle::None, f32::INFINITY),
+		}
+	}
+
+	pub fn interactable_handle(&self, point: Vec2, grab_radius: f32) -> CurveHandle {
+		let (handle, dist) = self.closest_handle(point);
+		if dist < grab_radius {
+			handle
+		} else {
+			CurveHandle::None
+		}
 	}
 
 	pub fn closest_segment(&self, point: Vec2) -> Option<usize> {
@@ -294,6 +342,14 @@ pub fn insert_loaded_map(
 			}
 		}
 	}
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CurveHandle {
+	#[default]
+	None,
+	CtrlPt(usize),
+	Tuesday(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

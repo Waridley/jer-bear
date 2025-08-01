@@ -8,12 +8,12 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_inspector_egui::{DefaultInspectorConfigPlugin, reflect_inspector};
 use egui_extras::{Column, TableBuilder};
-use jeremy_bearimy::map::{LoadingMapHandle, MapPlugin};
+use jeremy_bearimy::map::{CurveHandle, LoadingMapHandle, MapPlugin};
 use jeremy_bearimy::*;
 use map::Map;
 use std::path::PathBuf;
 
-const HANDLE_GRAB_RADIUS: f32 = 8.0;
+const HANDLE_GRAB_RADIUS: f32 = 12.0;
 const KEY_PAN_SPEED: f32 = 400.0;
 
 fn main() {
@@ -38,7 +38,7 @@ fn main() {
 pub fn setup(mut cmds: Commands, server: Res<AssetServer>) {
 	cmds.spawn(Camera2d);
 	cmds.insert_resource(ClearColor(BLACK.into()));
-	cmds.insert_resource(DragState::default());
+	cmds.insert_resource(State::default());
 	cmds.insert_resource(DisplaySettings::default());
 	cmds.insert_resource(SaveOptions::default());
 	cmds.insert_resource(LoadingMapHandle(server.load::<Map>("map.ron")));
@@ -48,7 +48,7 @@ pub fn draw_gui(
 	mut cmds: Commands,
 	mut ctx: EguiContexts,
 	map: Option<Res<Map>>,
-	dragging: Res<DragState>,
+	mut state: ResMut<State>,
 	server: Res<AssetServer>,
 	loading: Option<Res<LoadingMapHandle>>,
 	mut display_settings: ResMut<DisplaySettings>,
@@ -84,7 +84,7 @@ pub fn draw_gui(
 					.body(|mut body| {
 						for (i, p) in map.control_points().iter().enumerate() {
 							body.row(16.0, |mut row| {
-								row.set_selected(dragging.point() == Some(i));
+								row.set_selected(state.selection == CurveHandle::CtrlPt(i));
 								row.col(|ui| {
 									ui.label(i.to_string());
 								});
@@ -97,6 +97,14 @@ pub fn draw_gui(
 							});
 						}
 					})
+			});
+			ui.collapsing("Tuesdays", |ui| {
+				reflect_inspector::ui_for_value_readonly(&map.tuesdays, ui, &reg.read());
+			});
+			ui.add_enabled_ui(state.mode != Mode::AddingTuesday, |ui| {
+				if ui.button("Add Tuesday").clicked() {
+					state.mode = Mode::AddingTuesday;
+				}
 			});
 		}
 		ui.separator();
@@ -152,11 +160,16 @@ pub fn draw_gui(
 
 pub fn draw_curve(
 	window: Single<&Window, With<PrimaryWindow>>,
-	cam: Single<(&Camera, &GlobalTransform)>,
+	cam: Single<(&Camera, &GlobalTransform, &Projection)>,
 	map: Res<Map>,
 	display_settings: Res<DisplaySettings>,
 	mut gizmos: Gizmos,
 ) {
+	let scale = if let Projection::Orthographic(projection) = cam.2 {
+		projection.scale
+	} else {
+		unreachable!();
+	};
 	let pos = window
 		.cursor_position()
 		.and_then(|pos| cam.0.viewport_to_world(cam.1, pos).ok())
@@ -164,6 +177,7 @@ pub fn draw_curve(
 	map.draw(
 		&mut gizmos,
 		100,
+		scale,
 		display_settings.curve.then_some(YELLOW.into()),
 		display_settings
 			.segments
@@ -186,12 +200,16 @@ pub fn input(
 	window: Single<&Window, With<PrimaryWindow>>,
 	cam: Single<(&Camera, &mut Transform, &GlobalTransform, &mut Projection)>,
 	mut map: ResMut<Map>,
-	mut dragging: ResMut<DragState>,
+	mut state: ResMut<State>,
 	mut egui_ctx: EguiContexts,
 	t: Res<Time>,
 ) {
 	let (cam, ref mut cam_xform, cam_global, mut projection) = cam.into_inner();
 	let dt = t.delta_secs();
+	let scale = match &*projection {
+		Projection::Orthographic(projection) => projection.scale,
+		_ => unreachable!(),
+	};
 
 	if egui_ctx.ctx_mut().unwrap().wants_pointer_input() {
 		return;
@@ -203,74 +221,96 @@ pub fn input(
 		return;
 	};
 	let pos = ray.origin.xy();
-	let closest_handle = map.closest_control_point(pos);
+	let interactable = map.interactable_handle(pos, HANDLE_GRAB_RADIUS * scale);
 	for click in clicks.read() {
 		if click.state == ButtonState::Released {
-			dragging.clear();
+			match (state.mode, click.button) {
+				(Mode::Dragging, MouseButton::Left) => {
+					state.mode = Mode::Default;
+				}
+				other => {
+					debug!("unhandled mouse button release: {other:?}");
+				}
+			}
 		} else if click.state == ButtonState::Pressed {
-			if let Some(closest_handle) = closest_handle
-				&& pos.distance(map.control_points()[closest_handle]) < HANDLE_GRAB_RADIUS
-			{
-				match click.button {
-					MouseButton::Left => {
-						dragging.grab(closest_handle);
-						info!("Now dragging {closest_handle}");
-						continue;
-					}
-					MouseButton::Right => {
-						map.remove_point(closest_handle)
-							.map(|removed| {
-								info!("Removed control point {closest_handle} at {removed}")
-							})
-							.map_err(|i| error!("Failed to remove control point {i}"))
-							.ok();
-					}
-					_ => {}
+			match (state.mode, click.button, interactable) {
+				(Mode::Dragging, MouseButton::Left, _) => {
+					error!("should be unreachable")
 				}
-			} else {
-				match click.button {
-					MouseButton::Left => {
-						**dragging = map
-							.add_point(pos)
-							.map_err(|e| error!("Failed to add point: {e}"))
-							.ok();
-						dragging.interaction = Interaction::Pressed;
-					}
-					MouseButton::Right => {
-						// TODO: Context menu?
-					}
-					_ => {}
+				(Mode::AddingTuesday, MouseButton::Left, _) => {
+					let i = map.tuesdays.len();
+					map.tuesdays.push(pos);
+					state.selection = CurveHandle::Tuesday(i);
+					state.mode = Mode::Dragging;
 				}
+				(Mode::Default, MouseButton::Left, CurveHandle::CtrlPt(handle)) => {
+					state.selection = CurveHandle::CtrlPt(handle);
+					state.mode = Mode::Dragging;
+					info!("Now dragging {handle}");
+					continue;
+				}
+				(Mode::Default, MouseButton::Left, CurveHandle::Tuesday(tue)) => {
+					state.selection = CurveHandle::Tuesday(tue);
+					state.mode = Mode::Dragging;
+					info!("Now dragging {tue}");
+					continue;
+				}
+				(Mode::Default, MouseButton::Left, CurveHandle::None) => match map.add_point(pos) {
+					Ok(i) => {
+						state.selection = CurveHandle::CtrlPt(i);
+						state.mode = Mode::Dragging;
+					}
+					Err(e) => error!("Failed to add point: {e}"),
+				},
+				(Mode::Default, MouseButton::Right, CurveHandle::CtrlPt(handle)) => {
+					if let Err(e) = map.remove_point(handle) {
+						error!("Failed to remove point: {e}");
+					}
+				}
+				(Mode::Default, MouseButton::Right, CurveHandle::Tuesday(tue)) => {
+					map.tuesdays.remove(tue);
+				}
+				(_, MouseButton::Middle, _) => {
+					// Could change cursor here for panning
+				}
+				_ => {}
 			}
 		}
 	}
-	if !motion.is_empty() {
-		if dragging.is_grabbed() {
-			map.move_point(dragging.point.unwrap(), pos);
-		} else if let Some(closest_handle) = closest_handle {
-			if pos.distance(map.control_points()[closest_handle]) < HANDLE_GRAB_RADIUS {
-				dragging.hover(closest_handle);
-			} else {
-				dragging.clear();
-			}
-		} else {
-			dragging.clear();
-		}
-	}
-	{
-		let Projection::Orthographic(projection) = &*projection else {
-			unreachable!();
-		};
 
-		let speed = projection.scale;
+	if !motion.is_empty() {
+		match state.mode {
+			Mode::Dragging => match state.selection {
+				CurveHandle::CtrlPt(i) => {
+					map.move_point(i, pos);
+				}
+				CurveHandle::Tuesday(i) => {
+					map.tuesdays[i] = pos;
+				}
+				CurveHandle::None => {
+					error!("Not dragging anything?");
+					state.mode = Mode::Default;
+				}
+			},
+			Mode::AddingTuesday => {
+				// If drawing is immediate-mode, this doesn't need to do anything,
+				// but if switched to moving an entity, this is where the transform needs updated.
+			}
+			Mode::Default => {
+				// Could change cursor here for hovering
+			}
+		}
+	}
+
+	{
 		if buttons.pressed(MouseButton::Middle) {
 			for motion in motion.read() {
-				cam_xform.translation.x += -motion.delta.x * speed;
-				cam_xform.translation.y += motion.delta.y * speed;
+				cam_xform.translation.x += -motion.delta.x * scale;
+				cam_xform.translation.y += motion.delta.y * scale;
 			}
 		}
 
-		let speed = speed * KEY_PAN_SPEED * dt;
+		let speed = scale * KEY_PAN_SPEED * dt;
 		if keys.pressed(KeyCode::ArrowLeft) {
 			cam_xform.translation.x -= speed;
 		}
@@ -304,36 +344,18 @@ pub fn input(
 	}
 }
 
-#[derive(Resource, Default, Debug, Deref, DerefMut)]
-pub struct DragState {
-	#[deref]
-	point: Option<usize>,
-	interaction: Interaction,
+#[derive(Resource, Default, Debug)]
+pub struct State {
+	pub mode: Mode,
+	pub selection: CurveHandle,
 }
 
-impl DragState {
-	pub fn clear(&mut self) {
-		self.point = None;
-		self.interaction = Interaction::None;
-	}
-
-	pub fn point(&self) -> Option<usize> {
-		self.point
-	}
-
-	pub fn is_grabbed(&self) -> bool {
-		self.interaction == Interaction::Pressed
-	}
-
-	pub fn grab(&mut self, point: usize) {
-		self.point = Some(point);
-		self.interaction = Interaction::Pressed;
-	}
-
-	pub fn hover(&mut self, point: usize) {
-		self.point = Some(point);
-		self.interaction = Interaction::Hovered;
-	}
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+	#[default]
+	Default,
+	Dragging,
+	AddingTuesday,
 }
 
 #[derive(Resource, Debug, Clone)]
