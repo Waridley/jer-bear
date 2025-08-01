@@ -27,6 +27,8 @@ pub struct Map {
 	#[reflect(ignore)]
 	curve: CubicCurve<Vec2>,
 	spline: CubicBSpline<Vec2>,
+	/// Also July. And the time when nothing, never happens.
+	pub tuesdays: Vec<Vec2>,
 }
 
 impl Map {
@@ -35,7 +37,12 @@ impl Map {
 	) -> Result<Self, InsufficientDataError> {
 		let spline = CubicBSpline::new(control_points);
 		let curve = spline.to_curve_cyclic()?;
-		Ok(Self { curve, spline })
+		let tuesdays = Vec::new();
+		Ok(Self {
+			curve,
+			spline,
+			tuesdays,
+		})
 	}
 
 	pub fn sync(&mut self) -> Result<(), InsufficientDataError> {
@@ -47,23 +54,25 @@ impl Map {
 		&self,
 		gizmos: &mut Gizmos,
 		resolution: usize,
-		curve_color: Color,
-		segment_color: Color,
+		curve_color: Option<Color>,
+		segment_color: Option<Color>,
 		closest_segment_color: Color,
-		handle_color: Color,
+		handle_color: Option<Color>,
 		hovered_handle_color: Color,
 		cursor_pos: Option<Vec2>,
 		grab_radius: f32,
 	) {
-		for [a, b] in self
-			.spline
-			.control_points
-			.iter()
-			.copied()
-			.chain(std::iter::once(self.spline.control_points[0]))
-			.map_windows(|&pair| pair)
-		{
-			gizmos.line_2d(a, b, segment_color);
+		if let Some(segment_color) = segment_color {
+			for [a, b] in self
+				.spline
+				.control_points
+				.iter()
+				.copied()
+				.chain(std::iter::once(self.spline.control_points[0]))
+				.map_windows(|&pair| pair)
+			{
+				gizmos.line_2d(a, b, segment_color);
+			}
 		}
 		if let Some(closest_segment) = cursor_pos.and_then(|pos| self.closest_segment(pos)) {
 			gizmos.line_2d(
@@ -78,21 +87,25 @@ impl Map {
 				&& pos.distance(*p) < grab_radius
 			{
 				hovered_handle_color
-			} else {
+			} else if let Some(handle_color) = handle_color {
 				handle_color
+			} else {
+				continue;
 			};
 			gizmos.circle_2d(*p, 4.0, color);
 		}
-		for [a, b] in self
-			.curve
-			.iter_positions(resolution * self.spline.control_points.len())
-			.map_windows(|&pair| pair)
-		{
-			gizmos.line(
-				Vec3::new(a.x, a.y, 0.0),
-				Vec3::new(b.x, b.y, 0.0),
-				curve_color,
-			);
+		if let Some(curve_color) = curve_color {
+			for [a, b] in self
+				.curve
+				.iter_positions(resolution * self.spline.control_points.len())
+				.map_windows(|&pair| pair)
+			{
+				gizmos.line(
+					Vec3::new(a.x, a.y, 0.0),
+					Vec3::new(b.x, b.y, 0.0),
+					curve_color,
+				);
+			}
 		}
 	}
 

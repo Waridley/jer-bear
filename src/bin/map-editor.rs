@@ -6,6 +6,7 @@ use bevy::input::mouse::{MouseButtonInput, MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use bevy_inspector_egui::{DefaultInspectorConfigPlugin, reflect_inspector};
 use egui_extras::{Column, TableBuilder};
 use jeremy_bearimy::map::{LoadingMapHandle, MapPlugin};
 use jeremy_bearimy::*;
@@ -13,6 +14,7 @@ use map::Map;
 use std::path::PathBuf;
 
 const HANDLE_GRAB_RADIUS: f32 = 8.0;
+const KEY_PAN_SPEED: f32 = 400.0;
 
 fn main() {
 	App::new()
@@ -23,8 +25,10 @@ fn main() {
 				..default()
 			}),
 			EguiPlugin::default(),
+			DefaultInspectorConfigPlugin,
 			MapPlugin,
 		))
+		.register_type::<DisplaySettings>()
 		.add_systems(Startup, setup)
 		.add_systems(Update, (draw_curve, input).run_if(resource_exists::<Map>))
 		.add_systems(EguiPrimaryContextPass, draw_gui)
@@ -35,7 +39,8 @@ pub fn setup(mut cmds: Commands, server: Res<AssetServer>) {
 	cmds.spawn(Camera2d);
 	cmds.insert_resource(ClearColor(BLACK.into()));
 	cmds.insert_resource(DragState::default());
-
+	cmds.insert_resource(DisplaySettings::default());
+	cmds.insert_resource(SaveOptions::default());
 	cmds.insert_resource(LoadingMapHandle(server.load::<Map>("map.ron")));
 }
 
@@ -46,17 +51,21 @@ pub fn draw_gui(
 	dragging: Res<DragState>,
 	server: Res<AssetServer>,
 	loading: Option<Res<LoadingMapHandle>>,
-	mut save_opts: Local<SaveOptions>,
+	mut display_settings: ResMut<DisplaySettings>,
+	reg: Res<AppTypeRegistry>,
+	mut save_opts: ResMut<SaveOptions>,
 ) {
 	let ctx = ctx.ctx_mut().unwrap();
 	egui::Window::new("Hello").show(ctx, |ui| {
 		ui.label("Click to add point in highlighted segment.");
 		ui.label("Drag handles to reshape curve.");
 		ui.label("Scroll to zoom.");
+		ui.label("Middle click and drag or use arrow keys to pan.");
 		ui.separator();
-		ui.label("Control points:");
+		reflect_inspector::ui_for_value(&mut *display_settings, ui, &reg.read());
+		ui.separator();
 		if let Some(map) = map {
-			ui.vertical(|ui| {
+			ui.collapsing("Control points", |ui| {
 				TableBuilder::new(ui)
 					.column(Column::auto())
 					.column(Column::auto())
@@ -109,7 +118,7 @@ pub fn draw_gui(
 					warn!("Couldn't set directory");
 					dialogue
 				};
-				if let Some(path) = dialogue.pick_file() {
+				if let Some(path) = dialogue.save_file() {
 					save_opts.path = path;
 				}
 			}
@@ -121,11 +130,11 @@ pub fn draw_gui(
 				));
 			}
 			if ui.button("Save").clicked() {
-				cmds.run_system_cached_with(save_map, save_opts.clone());
+				cmds.run_system_cached(save_map);
 			}
 			ui.checkbox(&mut save_opts.pretty, "Pretty");
 		});
-		if ui.button("Load Default").clicked() {
+		if ui.button("New").clicked() {
 			cmds.insert_resource(Map::default());
 		}
 		if let Some(loading) = loading {
@@ -145,6 +154,7 @@ pub fn draw_curve(
 	window: Single<&Window, With<PrimaryWindow>>,
 	cam: Single<(&Camera, &GlobalTransform)>,
 	map: Res<Map>,
+	display_settings: Res<DisplaySettings>,
 	mut gizmos: Gizmos,
 ) {
 	let pos = window
@@ -154,10 +164,12 @@ pub fn draw_curve(
 	map.draw(
 		&mut gizmos,
 		100,
-		YELLOW.into(),
-		Color::srgb(0.2, 0.2, 0.2),
+		display_settings.curve.then_some(YELLOW.into()),
+		display_settings
+			.segments
+			.then_some(Color::srgb(0.2, 0.2, 0.2)),
 		BLUE.into(),
-		WHITE.into(),
+		display_settings.control_points.then_some(WHITE.into()),
 		GREEN.into(),
 		pos,
 		HANDLE_GRAB_RADIUS,
@@ -165,22 +177,29 @@ pub fn draw_curve(
 }
 
 pub fn input(
-	motion: EventReader<MouseMotion>,
+	mut cmds: Commands,
+	keys: Res<ButtonInput<KeyCode>>,
+	mut motion: EventReader<MouseMotion>,
+	buttons: Res<ButtonInput<MouseButton>>,
 	mut clicks: EventReader<MouseButtonInput>,
 	mut scrolls: EventReader<MouseWheel>,
 	window: Single<&Window, With<PrimaryWindow>>,
-	mut cam: Single<(&Camera, &GlobalTransform, &mut Projection)>,
+	cam: Single<(&Camera, &mut Transform, &GlobalTransform, &mut Projection)>,
 	mut map: ResMut<Map>,
 	mut dragging: ResMut<DragState>,
 	mut egui_ctx: EguiContexts,
+	t: Res<Time>,
 ) {
+	let (cam, ref mut cam_xform, cam_global, mut projection) = cam.into_inner();
+	let dt = t.delta_secs();
+
 	if egui_ctx.ctx_mut().unwrap().wants_pointer_input() {
 		return;
 	}
 	let Some(pos) = window.cursor_position() else {
 		return;
 	};
-	let Ok(ray) = cam.0.viewport_to_world(cam.1, pos) else {
+	let Ok(ray) = cam.viewport_to_world(cam_global, pos) else {
 		return;
 	};
 	let pos = ray.origin.xy();
@@ -238,9 +257,42 @@ pub fn input(
 			dragging.clear();
 		}
 	}
+	{
+		let Projection::Orthographic(projection) = &*projection else {
+			unreachable!();
+		};
+
+		let speed = projection.scale;
+		if buttons.pressed(MouseButton::Middle) {
+			for motion in motion.read() {
+				cam_xform.translation.x += -motion.delta.x * speed;
+				cam_xform.translation.y += motion.delta.y * speed;
+			}
+		}
+
+		let speed = speed * KEY_PAN_SPEED * dt;
+		if keys.pressed(KeyCode::ArrowLeft) {
+			cam_xform.translation.x -= speed;
+		}
+		if keys.pressed(KeyCode::ArrowRight) {
+			cam_xform.translation.x += speed;
+		}
+		if keys.pressed(KeyCode::ArrowUp) {
+			cam_xform.translation.y += speed;
+		}
+		if keys.pressed(KeyCode::ArrowDown) {
+			cam_xform.translation.y -= speed;
+		}
+	}
+
+	if keys.just_pressed(KeyCode::KeyS)
+		&& (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight))
+	{
+		cmds.run_system_cached(save_map);
+	}
 
 	for scroll in scrolls.read() {
-		let Projection::Orthographic(projection) = &mut *cam.2 else {
+		let Projection::Orthographic(projection) = &mut *projection else {
 			unreachable!();
 		};
 
@@ -284,7 +336,7 @@ impl DragState {
 	}
 }
 
-#[derive(Clone)]
+#[derive(Resource, Debug, Clone)]
 pub struct SaveOptions {
 	path: PathBuf,
 	pretty: bool,
@@ -303,7 +355,7 @@ impl Default for SaveOptions {
 	}
 }
 
-pub fn save_map(opts: In<SaveOptions>, map: Res<Map>, reg: Res<AppTypeRegistry>) {
+pub fn save_map(opts: Res<SaveOptions>, map: Res<Map>, reg: Res<AppTypeRegistry>) {
 	let reg = reg.read();
 	let serializer = bevy::reflect::serde::TypedReflectSerializer::new(&*map, &reg);
 
@@ -323,4 +375,22 @@ pub fn save_map(opts: In<SaveOptions>, map: Res<Map>, reg: Res<AppTypeRegistry>)
 	};
 
 	info!("Saved map to {}", opts.path.display());
+}
+
+#[derive(Resource, Reflect, Debug)]
+#[reflect(Resource, Default)]
+pub struct DisplaySettings {
+	pub control_points: bool,
+	pub curve: bool,
+	pub segments: bool,
+}
+
+impl Default for DisplaySettings {
+	fn default() -> Self {
+		Self {
+			control_points: false,
+			curve: true,
+			segments: true,
+		}
+	}
 }
