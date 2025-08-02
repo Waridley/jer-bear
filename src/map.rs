@@ -464,10 +464,22 @@ impl Display for AddPointError {
 	}
 }
 
-#[derive(Component, Debug, Default, Copy, Clone, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Component, Debug, Copy, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct TimelinePosition {
 	/// The "time" value used to sample the map curve for position.
 	pub t: f32,
+	/// The speed at which the entity moves along the curve.
+	/// Scales the delta time added to `t` each frame.
+	pub speed: f32,
+}
+
+impl Default for TimelinePosition {
+	fn default() -> Self {
+		Self {
+			t: 0.0,
+			speed: 0.5,
+		}
+	}
 }
 
 pub fn tick_timeline_positions(
@@ -478,9 +490,8 @@ pub fn tick_timeline_positions(
 	let domain = map.curve.domain();
 	debug_assert_eq!(domain.start(), 0.0);
 
-	let dt = t.delta_secs() * 0.5;
 	for mut pos in &mut query {
-		pos.t = (pos.t + dt) % domain.end();
+		pos.t = (pos.t + (t.delta_secs() * pos.speed)) % domain.end();
 	}
 }
 

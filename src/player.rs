@@ -3,10 +3,13 @@ use crate::loading::{LoadingTaskHandle, LoadingTasks};
 use crate::map::Map;
 use bevy::prelude::*;
 use bevy::render::camera;
+use serde::{Deserialize, Serialize};
+use crate::levels::Level;
+use crate::stats::{end_level, GameResult};
 
-pub const PLAYER_ACCEL: f32 = 500.0;
-pub const PLAYER_VELOCITY_DECAY: f32 = 0.5;
-pub const PLAYER_MAX_VELOCITY: f32 = 2000.0;
+pub const BASE_PLAYER_MAX_VELOCITY: f32 = 2000.0;
+pub const BASE_PLAYER_ACCEL: f32 = 500.0;
+pub const BASE_PLAYER_VELOCITY_DECAY: f32 = 0.5;
 
 pub struct PlayerPlugin;
 
@@ -81,7 +84,9 @@ pub fn spawn_player(mut cmds: Commands, assets: Res<PlayerAssets>) {
 pub struct Avatar;
 
 pub fn player_movement(
+	mut cmds: Commands,
 	mut query: Query<(&mut Transform, &mut Velocity), With<Avatar>>,
+	level: Res<Level>,
 	map: Res<Map>,
 	keys: Res<ButtonInput<KeyCode>>,
 	mut next_state: ResMut<NextState<GameState>>,
@@ -101,12 +106,19 @@ pub fn player_movement(
 		if keys.pressed(KeyCode::KeyS) {
 			delta.y -= 1.0;
 		}
-		vel.0 *= 1.0 - t.delta_secs() * PLAYER_VELOCITY_DECAY;
-		vel.0 += delta * t.delta_secs() * PLAYER_ACCEL;
-		vel.0 = vel.0.clamp_length_max(PLAYER_MAX_VELOCITY);
+		let PlayerSpeedParams {
+			max_velocity,
+			accel,
+			velocity_decay,
+		} = level.player_speed_params;
+		
+		vel.0 *= 1.0 - t.delta_secs() * velocity_decay;
+		vel.0 += delta * t.delta_secs() * accel;
+		vel.0 = vel.0.clamp_length_max(max_velocity);
 		xform.translation += vel.0.extend(0.0) * t.delta_secs();
 		let abs_pos = xform.translation.xy().abs();
 		if abs_pos.x > map.size.x * 0.5 || abs_pos.y > map.size.y * 0.5 {
+			cmds.run_system_cached_with(end_level, GameResult::OutOfBounds);
 			next_state.set(GameState::LevelEnd);
 		}
 	}
@@ -114,3 +126,21 @@ pub fn player_movement(
 
 #[derive(Component, Debug, Default, Copy, Clone, Reflect)]
 pub struct Velocity(pub Vec2);
+
+#[derive(Reflect, Debug, Clone, Copy, Serialize, Deserialize)]
+#[reflect(Default, Serialize, Deserialize)]
+pub struct PlayerSpeedParams {
+	pub max_velocity: f32,
+	pub accel: f32,
+	pub velocity_decay: f32,
+}
+
+impl Default for PlayerSpeedParams {
+	fn default() -> Self {
+		Self {
+			max_velocity: BASE_PLAYER_MAX_VELOCITY,
+			accel: BASE_PLAYER_ACCEL,
+			velocity_decay: BASE_PLAYER_VELOCITY_DECAY,
+		}
+	}
+}

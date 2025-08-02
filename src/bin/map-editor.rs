@@ -406,7 +406,7 @@ impl Default for SaveOptions {
 			.unwrap_or_else(|_| PathBuf::from("."))
 			.join("assets");
 		Self {
-			path: dir.join("map.ron"),
+			path: dir.join("maps/map.ron"),
 			pretty: false,
 		}
 	}

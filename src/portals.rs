@@ -18,14 +18,53 @@ impl Plugin for PortalsPlugin {
 	}
 }
 
-#[derive(Component, Reflect, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Reflect, Default, Debug, Clone, Serialize, Deserialize)]
+#[reflect(Default, Serialize, Deserialize)]
+#[serde(default)]
 #[require(TimelinePosition, Transform, StateScoped::<GameState>(GameState::LevelEnd))]
 pub struct Portal {
 	pub spawns: SpawnedItem,
 }
 
+/// For level descriptions, since TimelinePosition is a separate component but may often need to be set.
 #[derive(Reflect, Debug, Clone, Serialize, Deserialize)]
+#[reflect(Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PortalDescriptor {
+	pub spawns: SpawnedItem,
+	pub t_start: f32,
+	pub speed: f32,
+}
+
+impl Default for PortalDescriptor {
+	fn default() -> Self {
+		let tpos = TimelinePosition::default();
+		Self {
+			spawns: Portal::default().spawns,
+			t_start: tpos.t,
+			speed: tpos.speed,
+		}
+	}
+}
+
+impl PortalDescriptor {
+	pub fn bundle(&self) -> (Portal, TimelinePosition) {
+		(
+			Portal {
+				spawns: self.spawns,
+			},
+			TimelinePosition {
+				t: self.t_start,
+				speed: self.speed,
+			},
+		)
+	}
+}
+
+#[derive(Reflect, Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[reflect(Default, Serialize, Deserialize)]
 pub enum SpawnedItem {
+	#[default]
 	Beehive,
 }
 

@@ -1,0 +1,29 @@
+#![enable(unwrap_newtypes, implicit_some)]
+[
+	(
+		name: "Infinity",
+		map: "maps/inf.ron",
+		waves: [
+			(portals: [(spawns: Beehive)]),
+		],
+	),
+	(
+		name: "Jeremy Bearimy",
+		map: "jeremy_bearimy.ron",
+		waves: [
+			(portals: [(spawns: Beehive)]),
+		],
+	),
+	(
+		name: "JerBear Slippery",
+		map: "jeremy_bearimy.ron",
+		waves: [
+			(portals: [(spawns: Beehive)]),
+		],
+		player_speed_params: (
+			max_velocity: 4000.0,
+			accel: 1000.0,
+			velocity_decay: 0.2,
+		),
+	),
+]
