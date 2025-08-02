@@ -19,6 +19,7 @@ impl Plugin for PlayerPlugin {
 			.add_systems(
 				Update,
 				(
+					spin_blades,
 					player_movement.run_if(in_state(GameState::Playing)),
 					PlayerAssets::check_progress.run_if(in_state(GameState::Loading)),
 				),
@@ -30,7 +31,7 @@ impl Plugin for PlayerPlugin {
 #[derive(Resource, Debug, Clone)]
 pub struct PlayerAssets {
 	loading_task_handle: LoadingTaskHandle,
-	avatar: Handle<Image>,
+	blades: Handle<Image>,
 }
 
 impl PlayerAssets {
@@ -41,7 +42,7 @@ impl PlayerAssets {
 	) {
 		cmds.insert_resource(Self {
 			loading_task_handle: loading_tasks.start("Player Assets"),
-			avatar: server.load("avatar.png"),
+			blades: server.load("blades.png"),
 		});
 	}
 
@@ -50,7 +51,7 @@ impl PlayerAssets {
 		server: Res<AssetServer>,
 		mut loading_tasks: ResMut<LoadingTasks>,
 	) {
-		for handle in &[assets.avatar.clone().untyped()] {
+		for handle in &[assets.blades.clone().untyped()] {
 			if !server.is_loaded_with_dependencies(handle.id()) {
 				return;
 			}
@@ -60,27 +61,30 @@ impl PlayerAssets {
 }
 
 pub fn spawn_player(mut cmds: Commands, assets: Res<PlayerAssets>) {
-	cmds.spawn((
-		Avatar,
-		Sprite {
-			image: assets.avatar.clone(),
-			..default()
-		},
-	))
-	.with_child((
-		Camera2d,
-		Projection::Orthographic(OrthographicProjection {
-			scaling_mode: camera::ScalingMode::Fixed {
-				width: 1920.0,
-				height: 1080.0,
-			},
-			..OrthographicProjection::default_2d()
-		}),
-	));
+	cmds.spawn(Avatar)
+		.with_children(|cmds| {
+			cmds.spawn((
+				Blades { spin_speed: -24.0 },
+				Sprite {
+					image: assets.blades.clone(),
+					..default()
+				},
+			));
+			cmds.spawn((
+				Camera2d,
+				Projection::Orthographic(OrthographicProjection {
+					scaling_mode: camera::ScalingMode::Fixed {
+						width: 1920.0,
+						height: 1080.0,
+					},
+					..OrthographicProjection::default_2d()
+				}),
+			));
+		});
 }
 
 #[derive(Component, Debug, Default, Copy, Clone, Reflect)]
-#[require(Sprite, Velocity, StateScoped::<GameState>(GameState::Playing))]
+#[require(Transform, Visibility, Velocity, StateScoped::<GameState>(GameState::Playing))]
 pub struct Avatar;
 
 pub fn player_movement(
@@ -143,4 +147,18 @@ impl Default for PlayerSpeedParams {
 			velocity_decay: BASE_PLAYER_VELOCITY_DECAY,
 		}
 	}
+}
+
+pub fn spin_blades(
+	mut query: Query<(&mut Transform, &Blades)>,
+	t: Res<Time>,
+) {
+	for (mut xform, blades) in &mut query {
+		xform.rotate_z(t.delta_secs() * blades.spin_speed);
+	}
+}
+
+#[derive(Component, Debug, Default, Copy, Clone)]
+pub struct Blades {
+	spin_speed: f32,
 }

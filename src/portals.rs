@@ -65,7 +65,7 @@ impl PortalDescriptor {
 #[reflect(Default, Serialize, Deserialize)]
 pub enum SpawnedItem {
 	#[default]
-	Beehive,
+	Bees,
 }
 
 pub fn dbg_draw_portals(portals: Query<&GlobalTransform, With<Portal>>, mut gizmos: Gizmos) {
