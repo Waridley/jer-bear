@@ -2,6 +2,7 @@
 name = "jeremy-bearimy"
 version = "0.1.0"
 edition = "2024"
+default-run = "jeremy-bearimy"
 
 [features]
 dev_tools = ["bevy_egui", "bevy-inspector-egui", "egui_extras", "rfd"]

@@ -1,9 +1,14 @@
+use crate::GameState;
+use crate::levels::Level;
 use bevy::asset::io::Reader;
-use bevy::asset::{AssetLoader, LoadContext, ReflectAsset, ron};
+use bevy::asset::{AssetLoader, AssetPath, LoadContext, ReflectAsset, ron};
+use bevy::color::palettes::basic::{BLUE, GREEN, WHITE, YELLOW};
+use bevy::input::common_conditions::input_toggle_active;
 use bevy::math::cubic_splines::InsufficientDataError;
 use bevy::prelude::*;
 use bevy::reflect::TypeRegistryArc;
 use serde::de::DeserializeSeed;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
@@ -13,7 +18,16 @@ impl Plugin for MapPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_asset::<Map>()
 			.register_asset_reflect::<Map>()
-			.add_systems(PreUpdate, insert_loaded_map);
+			.add_systems(PreUpdate, insert_loaded_map)
+			.add_systems(
+				Update,
+				(
+					tick_timeline_positions,
+					move_timeline_items,
+					dbg_draw_curve.run_if(input_toggle_active(false, KeyCode::KeyC)),
+				)
+					.run_if(in_state(GameState::Playing)),
+			);
 		let loader = MapLoader {
 			registry: app.world().resource::<AppTypeRegistry>().0.clone(),
 		};
@@ -21,15 +35,19 @@ impl Plugin for MapPlugin {
 	}
 }
 
-#[derive(Resource, Asset, Debug, Deref, Reflect)]
+#[derive(Resource, Asset, Debug, Clone, Deref, Reflect)]
 #[reflect(Default, Resource, Asset)]
 pub struct Map {
 	#[deref]
 	#[reflect(ignore)]
 	curve: CubicCurve<Vec2>,
 	spline: CubicBSpline<Vec2>,
-	/// Also July. And the time when nothing, never happens.
+	/// Also July. And sometimes, the time when nothing, never happens.
 	pub tuesdays: Vec<Vec2>,
+	pub background: AssetPath<'static>,
+	#[reflect(ignore)]
+	pub bg_handle: Handle<Image>,
+	pub size: Vec2,
 }
 
 impl Map {
@@ -43,6 +61,9 @@ impl Map {
 			curve,
 			spline,
 			tuesdays,
+			background: "bg.png".into(),
+			bg_handle: default(),
+			size: Vec2::splat(8192.0),
 		})
 	}
 
@@ -116,7 +137,7 @@ impl Map {
 				} else {
 					curve_color
 				};
-				gizmos.circle_2d(*tue, 4.0, color);
+				gizmos.circle_2d(*tue, 16.0, color);
 			}
 		}
 	}
@@ -153,6 +174,68 @@ impl Map {
 			.to_curve_cyclic()
 			.expect("already checked length");
 		Ok(removed)
+	}
+
+	pub fn rotate_points(&mut self, n: isize) {
+		if n < 0 {
+			self.spline.control_points.rotate_left(n.unsigned_abs());
+			self.sync().expect("curve was already valid");
+		} else if n > 0 {
+			self.spline.control_points.rotate_right(n as usize);
+			self.sync().expect("curve was already valid");
+		}
+	}
+
+	pub fn translate(&mut self, delta: Vec2) {
+		self.spline
+			.control_points
+			.iter_mut()
+			.for_each(|p| *p += delta);
+		self.tuesdays.iter_mut().for_each(|p| *p += delta);
+		self.sync().expect("curve was already valid");
+	}
+
+	pub fn find_center(&self) -> Vec2 {
+		self.spline
+			.control_points
+			.iter()
+			.chain(self.tuesdays.iter())
+			.sum::<Vec2>()
+			/ self.spline.control_points.len() as f32
+	}
+
+	pub fn recenter(&mut self) {
+		let center = self.bounding_rect().center();
+		self.translate(-center);
+	}
+
+	pub fn bounding_rect(&self) -> Rect {
+		let min = self
+			.spline
+			.control_points
+			.iter()
+			.chain(self.tuesdays.iter())
+			.fold(Vec2::ZERO, |acc, p| acc.min(*p));
+		let max = self
+			.spline
+			.control_points
+			.iter()
+			.chain(self.tuesdays.iter())
+			.fold(Vec2::ZERO, |acc, p| acc.max(*p));
+		Rect { min, max }
+	}
+
+	pub fn scale_curve_to(&mut self, size: Vec2) {
+		let center = self.find_center();
+		let scale = size / self.bounding_rect().size();
+		self.translate(-center);
+		self.spline
+			.control_points
+			.iter_mut()
+			.for_each(|p| *p *= scale);
+		self.tuesdays.iter_mut().for_each(|p| *p *= scale);
+		self.translate(center);
+		self.sync().expect("curve was already valid");
 	}
 
 	pub fn closest_control_point(&self, point: Vec2) -> Option<(usize, f32)> {
@@ -250,7 +333,7 @@ impl AssetLoader for MapLoader {
 		&self,
 		reader: &mut dyn Reader,
 		_settings: &Self::Settings,
-		_load_context: &mut LoadContext<'_>,
+		load_context: &mut LoadContext<'_>,
 	) -> std::result::Result<Self::Asset, Self::Error> {
 		let mut bytes = Vec::new();
 		reader.read_to_end(&mut bytes).await?;
@@ -259,6 +342,8 @@ impl AssetLoader for MapLoader {
 		let mut deserializer = ron::Deserializer::from_bytes(&bytes)?;
 		let map = reflect_deserializer.deserialize(&mut deserializer)?;
 		let mut map: Map = Map::take_from_reflect(map)?;
+		let bg = load_context.load(&map.background);
+		map.bg_handle = bg;
 		map.sync()?;
 		Ok(map)
 	}
@@ -317,32 +402,50 @@ impl From<InsufficientDataError> for LoadMapError {
 
 impl std::error::Error for LoadMapError {}
 
-#[derive(Resource)]
-pub struct LoadingMapHandle(pub Handle<Map>);
-
 pub fn insert_loaded_map(
 	mut cmds: Commands,
-	mut maps: ResMut<Assets<Map>>,
-	mut events: EventReader<AssetEvent<Map>>,
-	loading: Option<Res<LoadingMapHandle>>,
+	maps: ResMut<Assets<Map>>,
+	server: Res<AssetServer>,
+	level: Option<Res<Level>>,
+	existing_map: Option<Res<Map>>,
+	existing_background: Option<Single<Entity, With<Background>>>,
 ) {
-	for ev in events.read() {
-		if let AssetEvent::LoadedWithDependencies { id } = ev {
-			if let Some(LoadingMapHandle(loading)) = loading.as_deref()
-				&& loading.id() == *id
-			{
-				cmds.remove_resource::<LoadingMapHandle>();
+	if existing_map.is_some() {
+		return;
+	}
+	if let Some(level) = level.as_deref()
+		&& server.is_loaded_with_dependencies(level.map_handle.id())
+	{
+		info!("Loaded map");
+		if let Some(mut map) = maps.get(level.map_handle.id()).cloned() {
+			if let Err(e) = map.sync() {
+				error!("Failed to convert control points to curve: {e}");
+				return;
 			}
-			if let Some(mut map) = maps.remove(*id) {
-				if let Err(e) = map.sync() {
-					error!("Failed to convert control points to curve: {e}");
-					return;
-				}
-				cmds.insert_resource(map);
+			if let Some(existing) = existing_background.as_deref() {
+				cmds.entity(*existing).despawn();
 			}
+			cmds.spawn((
+				Background,
+				Sprite {
+					image: map.bg_handle.clone(),
+					image_mode: SpriteImageMode::Tiled {
+						tile_x: true,
+						tile_y: true,
+						stretch_value: 1.0,
+					},
+					custom_size: Some(map.size),
+					..default()
+				},
+			));
+			cmds.insert_resource(map);
 		}
 	}
 }
+
+#[derive(Component, Debug)]
+#[require(Sprite, StateScoped::<GameState>(GameState::LevelEnd))]
+pub struct Background;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveHandle {
@@ -359,6 +462,51 @@ impl Display for AddPointError {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "Failed to add point to map")
 	}
+}
+
+#[derive(Component, Debug, Default, Copy, Clone, PartialEq, Reflect, Serialize, Deserialize)]
+pub struct TimelinePosition {
+	/// The "time" value used to sample the map curve for position.
+	pub t: f32,
+}
+
+pub fn tick_timeline_positions(
+	mut query: Query<&mut TimelinePosition>,
+	map: Res<Map>,
+	t: Res<Time>,
+) {
+	let domain = map.curve.domain();
+	debug_assert_eq!(domain.start(), 0.0);
+
+	let dt = t.delta_secs() * 0.5;
+	for mut pos in &mut query {
+		pos.t = (pos.t + dt) % domain.end();
+	}
+}
+
+pub fn move_timeline_items(mut query: Query<(&mut Transform, &TimelinePosition)>, map: Res<Map>) {
+	for (mut xform, pos) in &mut query {
+		let Some(Vec2 { x, y, .. }) = map.sample(pos.t) else {
+			error!("Failed to sample map at t={}", pos.t);
+			continue;
+		};
+		xform.translation = Vec3::new(x, y, xform.translation.z);
+	}
+}
+
+pub fn dbg_draw_curve(map: Res<Map>, mut gizmos: Gizmos) {
+	map.draw(
+		&mut gizmos,
+		100,
+		1.0,
+		Some(YELLOW.into()),
+		Some(Color::srgb(0.2, 0.2, 0.2)),
+		BLUE.into(),
+		Some(WHITE.into()),
+		GREEN.into(),
+		None,
+		10.0,
+	);
 }
 
 fn dist_squared_point_to_line_segment(a: Vec2, b: Vec2, p: Vec2) -> f32 {

@@ -8,7 +8,8 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_inspector_egui::{DefaultInspectorConfigPlugin, reflect_inspector};
 use egui_extras::{Column, TableBuilder};
-use jeremy_bearimy::map::{CurveHandle, LoadingMapHandle, MapPlugin};
+use jeremy_bearimy::levels::Level;
+use jeremy_bearimy::map::{Background, CurveHandle, MapPlugin};
 use jeremy_bearimy::*;
 use map::Map;
 use std::path::PathBuf;
@@ -41,16 +42,19 @@ pub fn setup(mut cmds: Commands, server: Res<AssetServer>) {
 	cmds.insert_resource(State::default());
 	cmds.insert_resource(DisplaySettings::default());
 	cmds.insert_resource(SaveOptions::default());
-	cmds.insert_resource(LoadingMapHandle(server.load::<Map>("map.ron")));
+	let mut level = Level::default();
+	let map_handle = server.load(&level.map);
+	level.map_handle = map_handle;
+	cmds.insert_resource(level);
 }
 
 pub fn draw_gui(
 	mut cmds: Commands,
 	mut ctx: EguiContexts,
-	map: Option<Res<Map>>,
+	map: Option<ResMut<Map>>,
+	mut background: Single<&mut Sprite, With<Background>>,
 	mut state: ResMut<State>,
 	server: Res<AssetServer>,
-	loading: Option<Res<LoadingMapHandle>>,
 	mut display_settings: ResMut<DisplaySettings>,
 	reg: Res<AppTypeRegistry>,
 	mut save_opts: ResMut<SaveOptions>,
@@ -64,8 +68,26 @@ pub fn draw_gui(
 		ui.separator();
 		reflect_inspector::ui_for_value(&mut *display_settings, ui, &reg.read());
 		ui.separator();
-		if let Some(map) = map {
+		if let Some(mut map) = map {
 			ui.collapsing("Control points", |ui| {
+				ui.horizontal(|ui| {
+					ui.label("Rotate:")
+						.on_hover_text("Rotate control points to change starting point");
+					if ui
+						.button("⬆")
+						.on_hover_text("Rotate control points list up")
+						.clicked()
+					{
+						map.rotate_points(-1);
+					}
+					if ui
+						.button("⬇")
+						.on_hover_text("Rotate control points list down")
+						.clicked()
+					{
+						map.rotate_points(1);
+					}
+				});
 				TableBuilder::new(ui)
 					.column(Column::auto())
 					.column(Column::auto())
@@ -106,6 +128,23 @@ pub fn draw_gui(
 					state.mode = Mode::AddingTuesday;
 				}
 			});
+			if ui.button("Re-center").clicked() {
+				map.recenter();
+			}
+			ui.separator();
+			ui.horizontal(|ui| {
+				ui.label("Background size:");
+				if reflect_inspector::ui_for_value(&mut map.size, ui, &reg.read()) {
+					background.custom_size = Some(map.size);
+				}
+			});
+			let mut size = map.bounding_rect().size();
+			ui.horizontal(|ui| {
+				ui.label("Curve dimensions:");
+				if reflect_inspector::ui_for_value(&mut size, ui, &reg.read()) {
+					map.scale_curve_to(size);
+				}
+			});
 		}
 		ui.separator();
 		ui.horizontal(|ui| {
@@ -133,9 +172,14 @@ pub fn draw_gui(
 		});
 		ui.horizontal(|ui| {
 			if ui.button("Load").clicked() {
-				cmds.insert_resource(LoadingMapHandle(
-					server.load::<Map>(save_opts.path.to_str().unwrap()),
-				));
+				let path = save_opts.path.to_string_lossy();
+				let path = AssetPath::from(path.as_ref()).clone_owned();
+				cmds.remove_resource::<Map>();
+				cmds.insert_resource(Level {
+					map_handle: server.load(&path),
+					map: path,
+					..default()
+				});
 			}
 			if ui.button("Save").clicked() {
 				cmds.run_system_cached(save_map);
@@ -144,16 +188,7 @@ pub fn draw_gui(
 		});
 		if ui.button("New").clicked() {
 			cmds.insert_resource(Map::default());
-		}
-		if let Some(loading) = loading {
-			ui.label(format!(
-				"Loading {}",
-				server
-					.get_path(&loading.0)
-					.as_ref()
-					.map(AssetPath::to_string)
-					.unwrap_or("[unknown path]".into())
-			));
+			save_opts.path = save_opts.path.with_file_name("new_map.ron");
 		}
 	});
 }
