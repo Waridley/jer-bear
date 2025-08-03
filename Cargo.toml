@@ -10,10 +10,13 @@ dev_tools = ["bevy_egui", "bevy-inspector-egui", "egui_extras", "rfd"]
 [dependencies]
 bevy = "0.16.1"
 bevy_common_assets = { version = "0.13.0", features = ["ron"] }
-bevy_enhanced_input = "0.14.1"
+bevy_enhanced_input = "0.15.2"
+bevy-persistent = { version = "0.8.0", features = ["ron"] }
+dirs = "6.0.0"
 serde = "1.0.219"
 indexmap = {  version = "2.10.0", features = ["serde"] }
 rand = "0.9.2"
+chrono = {  version = "0.4.41", features = ["serde"] }
 
 # dev tools
 bevy_egui = { version = "0.35.1", optional = true }

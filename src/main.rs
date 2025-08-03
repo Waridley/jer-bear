@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-
+use bevy_enhanced_input::EnhancedInputPlugin;
 pub use jeremy_bearimy::*;
 
 fn main() {
@@ -12,6 +12,7 @@ fn main() {
 				}),
 				..default()
 			}),
+			EnhancedInputPlugin,
 			bees::BeesPlugin,
 			hud::HudPlugin,
 			levels::LevelsPlugin,
@@ -20,6 +21,7 @@ fn main() {
 			map::MapPlugin,
 			player::PlayerPlugin,
 			portals::PortalsPlugin,
+			save::SavePlugin,
 			stats::StatsPlugin,
 			SplashPlugin,
 		))

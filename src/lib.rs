@@ -11,6 +11,7 @@ pub mod main_menu;
 pub mod map;
 pub mod player;
 pub mod portals;
+pub mod save;
 pub mod stats;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, States)]
@@ -18,6 +19,7 @@ pub enum GameState {
 	#[default]
 	Splash,
 	MainMenu,
+	LevelSelect,
 	Loading,
 	Playing,
 	LevelEnd,

@@ -10,6 +10,8 @@ use bevy_common_assets::ron::RonAssetPlugin;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use std::time::Duration;
+use bevy_persistent::Persistent;
+use crate::save::SaveData;
 
 pub struct LevelsPlugin;
 
@@ -92,7 +94,11 @@ pub fn load_level(
 	server: Res<AssetServer>,
 	mut next_state: ResMut<NextState<GameState>>,
 	mut loading_tasks: ResMut<LoadingTasks>,
+	save: Option<ResMut<Persistent<SaveData>>>,
 ) {
+	if let Some(mut save) = save {
+		save.unlocked_levels.insert(level.name.clone());
+	}
 	cmds.insert_resource(LevelStats::default());
 	debug_assert!(
 		level.is_added(),

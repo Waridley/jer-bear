@@ -3,6 +3,10 @@ use crate::GameState;
 use crate::levels::LevelList;
 use crate::stats::RunStats;
 use bevy::prelude::*;
+use bevy_persistent::Persistent;
+use crate::save::SaveData;
+
+pub mod level_select;
 
 pub struct MainMenuPlugin;
 
@@ -17,7 +21,7 @@ impl Plugin for MainMenuPlugin {
 	}
 }
 
-pub fn show_main_menu(mut cmds: Commands, server: Res<AssetServer>) {
+pub fn show_main_menu(mut cmds: Commands, server: Res<AssetServer>, mut save: ResMut<Persistent<SaveData>>) {
 	info!("Showing main menu");
 	cmds.spawn((Camera2d, StateScoped::<GameState>(GameState::MainMenu)));
 	let font = TextFont {
@@ -57,16 +61,18 @@ pub fn show_main_menu(mut cmds: Commands, server: Res<AssetServer>) {
 			font.clone()
 		));
 		
-		cmds.spawn((
+		let mut level_select_btn = cmds.spawn((
 			LevelSelectButton,
 			Button,
 			Node {
 				..btn_node.clone()
 			},
 			btn_bg,
-			// Disabled until levels are unlocked
-			Disabled,
-		)).with_child((
+		));
+		if save.unlocked_levels.is_empty() {
+			level_select_btn.insert(Disabled);
+		}
+		level_select_btn.with_child((
 			Text("Level Select".into()),
 			font,
 		));
@@ -118,10 +124,10 @@ pub fn handle_play_btn(
 
 pub fn handle_level_select_btn(
 	interaction: Single<&Interaction, (With<LevelSelectButton>, Without<Disabled>)>,
+	mut next_state: ResMut<NextState<GameState>>,
 ) {
 	if **interaction == Interaction::Pressed {
-		info!("Showing level select screen");
-		// TODO: Implement level select screen
+		next_state.set(GameState::LevelSelect);
 	}
 }
 

@@ -5,6 +5,7 @@ use crate::map::Map;
 use crate::stats::{GameResult, end_level};
 use bevy::prelude::*;
 use bevy::render::camera;
+use bevy_enhanced_input::prelude::*;
 use serde::{Deserialize, Serialize};
 
 pub const BASE_PLAYER_MAX_VELOCITY: f32 = 2000.0;
@@ -15,7 +16,9 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(OnEnter(GameState::Loading), PlayerAssets::load)
+		app
+			.add_input_context::<Avatar>()
+			.add_systems(OnEnter(GameState::Loading), PlayerAssets::load)
 			.add_systems(
 				Update,
 				(
@@ -61,7 +64,22 @@ impl PlayerAssets {
 }
 
 pub fn spawn_player(mut cmds: Commands, assets: Res<PlayerAssets>) {
-	cmds.spawn(Avatar).with_children(|cmds| {
+	cmds.spawn((
+		Avatar,
+		actions!(Avatar[
+			(
+				Action::<Move>::new(),
+				DeadZone::default(),
+				SmoothNudge::default(),
+				Bindings::spawn((
+					Cardinal::wasd_keys(),
+					Cardinal::arrow_keys(),
+					Axial::left_stick(),
+					Axial::right_stick(),
+				),
+			))
+		])
+	)).with_children(|cmds| {
 		cmds.spawn((
 			Blades {
 				radius: 48.0,
@@ -93,6 +111,7 @@ pub struct Avatar;
 pub fn player_movement(
 	mut cmds: Commands,
 	mut query: Query<(&mut Transform, &mut Velocity), With<Avatar>>,
+	move_action: Single<&Action<Move>>,
 	level: Res<Level>,
 	map: Res<Map>,
 	keys: Res<ButtonInput<KeyCode>>,
@@ -100,19 +119,7 @@ pub fn player_movement(
 	t: Res<Time>,
 ) {
 	for (mut xform, mut vel) in &mut query {
-		let mut delta = Vec2::ZERO;
-		if keys.pressed(KeyCode::KeyA) {
-			delta.x -= 1.0;
-		}
-		if keys.pressed(KeyCode::KeyD) {
-			delta.x += 1.0;
-		}
-		if keys.pressed(KeyCode::KeyW) {
-			delta.y += 1.0;
-		}
-		if keys.pressed(KeyCode::KeyS) {
-			delta.y -= 1.0;
-		}
+		let delta = ***move_action;
 		let PlayerSpeedParams {
 			max_velocity,
 			accel,
@@ -163,3 +170,7 @@ pub struct Blades {
 	pub radius: f32,
 	pub spin_speed: f32,
 }
+
+#[derive(InputAction)]
+#[action_output(Vec2)]
+pub struct Move;
