@@ -12,15 +12,15 @@ pub struct PortalsPlugin;
 impl Plugin for PortalsPlugin {
 	fn build(&self, app: &mut App) {
 		if cfg!(feature = "dev_tools") {
-			app.add_systems(
-				Update,
-				(
-					spin_portals,
-					spawn_items.run_if(in_state(GameState::Playing)),
-					dbg_draw_portals.run_if(input_toggle_active(false, KeyCode::KeyP)),
-				),
-			);
+			app.add_systems(Update, dbg_draw_portals.run_if(input_toggle_active(false, KeyCode::KeyP)));
 		}
+		app.add_systems(
+			Update,
+			(
+				spin_portals,
+				spawn_items.run_if(in_state(GameState::Playing)),
+			),
+		);
 	}
 }
 
