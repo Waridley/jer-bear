@@ -1,11 +1,10 @@
-use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
-use bevy::asset::io::ErasedAssetWriter;
+use crate::stats::RunStats;
 use bevy::prelude::*;
 use bevy_persistent::{PersistenceError, Persistent, StorageFormat};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
-use crate::stats::RunStats;
+use std::collections::{BTreeMap, HashSet};
+use std::path::PathBuf;
 
 pub struct SavePlugin;
 
@@ -24,10 +23,7 @@ pub struct SaveData {
 	pub unlocked_levels: HashSet<String>,
 }
 
-pub fn init_save_data(
-	mut cmds: Commands,
-	dir: Res<SaveDir>,
-) {
+pub fn init_save_data(mut cmds: Commands, dir: Res<SaveDir>) {
 	let path = dir.join("save.ron");
 	let save = match init_persistence(&path) {
 		Ok(save) => save,
@@ -59,7 +55,7 @@ pub fn init_save_data(
 	cmds.insert_resource(save);
 }
 
-fn init_persistence(path: impl Into<PathBuf>) -> Result<Persistent<SaveData>, PersistenceError>{
+fn init_persistence(path: impl Into<PathBuf>) -> Result<Persistent<SaveData>, PersistenceError> {
 	Persistent::<SaveData>::builder()
 		.name("save_data")
 		.path(path)
@@ -73,9 +69,10 @@ pub struct SaveDir(pub PathBuf);
 
 impl Default for SaveDir {
 	fn default() -> Self {
-		Self(dirs::data_dir()
-			.map(|dir| dir.join("waridley/jeremy-bearimy"))
-			.unwrap_or_else(|| "./saves".into())
+		Self(
+			dirs::data_dir()
+				.map(|dir| dir.join("waridley/jeremy-bearimy"))
+				.unwrap_or_else(|| "./saves".into()),
 		)
 	}
 }
@@ -85,9 +82,10 @@ pub struct ConfigDir(pub PathBuf);
 
 impl Default for ConfigDir {
 	fn default() -> Self {
-		Self(dirs::config_dir()
-			.map(|dir| dir.join("waridley/jeremy-bearimy"))
-			.unwrap_or_else(|| "./config".into())
+		Self(
+			dirs::config_dir()
+				.map(|dir| dir.join("waridley/jeremy-bearimy"))
+				.unwrap_or_else(|| "./config".into()),
 		)
 	}
 }

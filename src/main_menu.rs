@@ -1,10 +1,10 @@
-use bevy::color::palettes::tailwind::{GRAY_400, GRAY_500, GRAY_600, GRAY_800, GRAY_900};
 use crate::GameState;
 use crate::levels::LevelList;
+use crate::save::SaveData;
 use crate::stats::RunStats;
+use bevy::color::palettes::tailwind::{GRAY_400, GRAY_500, GRAY_600, GRAY_800, GRAY_900};
 use bevy::prelude::*;
 use bevy_persistent::Persistent;
-use crate::save::SaveData;
 
 pub mod level_select;
 
@@ -12,16 +12,22 @@ pub struct MainMenuPlugin;
 
 impl Plugin for MainMenuPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(OnEnter(GameState::MainMenu), show_main_menu)
-			.add_systems(Update, (
-				handle_btn_colors,
-				handle_play_btn,
-				handle_level_select_btn,
-			).run_if(in_state(GameState::MainMenu)));
+		app
+			.add_plugins(level_select::LevelSelectPlugin)
+			.add_systems(OnEnter(GameState::MainMenu), show_main_menu)
+			.add_systems(
+				Update,
+				(handle_btn_colors, handle_play_btn, handle_level_select_btn)
+					.run_if(in_state(GameState::MainMenu)),
+			);
 	}
 }
 
-pub fn show_main_menu(mut cmds: Commands, server: Res<AssetServer>, mut save: ResMut<Persistent<SaveData>>) {
+pub fn show_main_menu(
+	mut cmds: Commands,
+	server: Res<AssetServer>,
+	save: Res<Persistent<SaveData>>,
+) {
 	info!("Showing main menu");
 	cmds.spawn((Camera2d, StateScoped::<GameState>(GameState::MainMenu)));
 	let font = TextFont {
@@ -48,36 +54,22 @@ pub fn show_main_menu(mut cmds: Commands, server: Res<AssetServer>, mut save: Re
 			..default()
 		},
 		BackgroundColor(GRAY_400.into()),
-	)).with_children(|cmds| {
-		cmds.spawn((
-			PlayButton,
-			Button,
-			Node {
-				..btn_node.clone()
-			},
-			btn_bg,
-		)).with_child((
-			Text("Play".into()),
-			font.clone()
-		));
-		
+	))
+	.with_children(|cmds| {
+		cmds.spawn((PlayButton, Button, Node { ..btn_node.clone() }, btn_bg))
+			.with_child((Text("Play".into()), font.clone()));
+
 		let mut level_select_btn = cmds.spawn((
 			LevelSelectButton,
 			Button,
-			Node {
-				..btn_node.clone()
-			},
+			Node { ..btn_node.clone() },
 			btn_bg,
 		));
 		if save.unlocked_levels.is_empty() {
 			level_select_btn.insert(Disabled);
 		}
-		level_select_btn.with_child((
-			Text("Level Select".into()),
-			font,
-		));
+		level_select_btn.with_child((Text("Level Select".into()), font));
 	});
-	
 }
 
 #[derive(Component, Debug, Copy, Clone)]
@@ -113,13 +105,14 @@ pub fn handle_btn_colors(
 pub fn handle_play_btn(
 	mut cmds: Commands,
 	interaction: Single<&Interaction, With<PlayButton>>,
-	level_list: Res<LevelList>,
+	mut level_list: ResMut<LevelList>,
 ) {
 	if **interaction == Interaction::Pressed {
-    info!("Loading first level");
-    cmds.insert_resource(level_list[0].clone());
-    cmds.insert_resource(RunStats::default());
-  }
+		info!("Loading first level");
+		level_list.1 = 0;
+		cmds.insert_resource(level_list[0].clone());
+		cmds.insert_resource(RunStats::default());
+	}
 }
 
 pub fn handle_level_select_btn(

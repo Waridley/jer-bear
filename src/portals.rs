@@ -15,7 +15,8 @@ impl Plugin for PortalsPlugin {
 			app.add_systems(
 				Update,
 				(
-					(spin_portals, spawn_items),
+					spin_portals,
+					spawn_items.run_if(in_state(GameState::Playing)),
 					dbg_draw_portals.run_if(input_toggle_active(false, KeyCode::KeyP)),
 				),
 			);

@@ -26,7 +26,7 @@ pub struct RunStats {
 	pub levels: IndexMap<String, LevelStats>,
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GameResult {
 	Win,
 	OutOfBounds,
@@ -37,17 +37,12 @@ pub enum GameResult {
 pub fn end_level(
 	result: In<GameResult>,
 	level: Res<Level>,
-	stats: Res<LevelStats>,
+	mut stats: ResMut<LevelStats>,
 	mut run_stats: ResMut<RunStats>,
 	mut next_state: ResMut<NextState<GameState>>,
 ) {
-	run_stats.levels.insert(
-		level.name.clone(),
-		LevelStats {
-			result: Some(*result),
-			..stats.clone()
-		},
-	);
+	stats.result = Some(*result);
+	run_stats.levels.insert(level.name.clone(), stats.clone());
 	next_state.set(GameState::LevelEnd);
 }
 

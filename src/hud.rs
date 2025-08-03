@@ -37,7 +37,7 @@ pub fn spawn_display(mut cmds: Commands, server: Res<AssetServer>, level: Res<Le
 	};
 	let bg_color = BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.7));
 	let scope = StateScoped::<GameState>(GameState::LevelEnd);
-	
+
 	cmds.spawn((
 		Node {
 			min_width: Val::Px(120.0),
@@ -49,7 +49,7 @@ pub fn spawn_display(mut cmds: Commands, server: Res<AssetServer>, level: Res<Le
 		bg_color,
 		Outline {
 			width: Val::Px(2.0),
-			color:if let Goal::Time = level.goal {
+			color: if let Goal::Time = level.goal {
 				Color::WHITE
 			} else {
 				Color::NONE
@@ -58,21 +58,22 @@ pub fn spawn_display(mut cmds: Commands, server: Res<AssetServer>, level: Res<Le
 		},
 		scope.clone(),
 	))
-		.with_child((TimeDisplay, Text("0.00".into()), font.clone()));
-	
+	.with_child((TimeDisplay, Text("0.00".into()), font.clone()));
+
 	cmds.spawn(Node {
 		flex_direction: FlexDirection::Column,
 		position_type: PositionType::Absolute,
 		top: Val::Px(10.0),
 		right: Val::Px(10.0),
 		..default()
-	}).with_children(|cmds| {
+	})
+	.with_children(|cmds| {
 		cmds.spawn((
 			panel.clone(),
 			bg_color,
 			Outline {
 				width: Val::Px(2.0),
-				color:if let Goal::Bees(_) = level.goal {
+				color: if let Goal::Bees(_) = level.goal {
 					Color::WHITE
 				} else {
 					Color::NONE
@@ -80,7 +81,8 @@ pub fn spawn_display(mut cmds: Commands, server: Res<AssetServer>, level: Res<Le
 				..default()
 			},
 			scope.clone(),
-		)).with_child((
+		))
+		.with_child((
 			KilledBeesDisplay,
 			Text("Killed: 0".into()),
 			font.clone(),
@@ -96,7 +98,7 @@ pub fn spawn_display(mut cmds: Commands, server: Res<AssetServer>, level: Res<Le
 			bg_color,
 			Outline {
 				width: Val::Px(2.0),
-				color:if let Goal::MaxMissed(_) = level.goal {
+				color: if let Goal::MaxMissed(_) = level.goal {
 					Color::WHITE
 				} else {
 					Color::NONE
@@ -104,7 +106,8 @@ pub fn spawn_display(mut cmds: Commands, server: Res<AssetServer>, level: Res<Le
 				..default()
 			},
 			scope,
-		)).with_child((
+		))
+		.with_child((
 			MissedBeesDisplay,
 			Text("Missed: 0".into()),
 			font,

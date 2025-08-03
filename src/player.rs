@@ -16,8 +16,7 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
 	fn build(&self, app: &mut App) {
-		app
-			.add_input_context::<Avatar>()
+		app.add_input_context::<Avatar>()
 			.add_systems(OnEnter(GameState::Loading), PlayerAssets::load)
 			.add_systems(
 				Update,
@@ -66,8 +65,8 @@ impl PlayerAssets {
 pub fn spawn_player(mut cmds: Commands, assets: Res<PlayerAssets>) {
 	cmds.spawn((
 		Avatar,
-		actions!(Avatar[
-			(
+		actions!(
+			Avatar[(
 				Action::<Move>::new(),
 				DeadZone::default(),
 				SmoothNudge::default(),
@@ -76,10 +75,11 @@ pub fn spawn_player(mut cmds: Commands, assets: Res<PlayerAssets>) {
 					Cardinal::arrow_keys(),
 					Axial::left_stick(),
 					Axial::right_stick(),
-				),
-			))
-		])
-	)).with_children(|cmds| {
+				),)
+			)]
+		),
+	))
+	.with_children(|cmds| {
 		cmds.spawn((
 			Blades {
 				radius: 48.0,
@@ -114,8 +114,6 @@ pub fn player_movement(
 	move_action: Single<&Action<Move>>,
 	level: Res<Level>,
 	map: Res<Map>,
-	keys: Res<ButtonInput<KeyCode>>,
-	mut next_state: ResMut<NextState<GameState>>,
 	t: Res<Time>,
 ) {
 	for (mut xform, mut vel) in &mut query {
@@ -133,7 +131,6 @@ pub fn player_movement(
 		let abs_pos = xform.translation.xy().abs();
 		if abs_pos.x > map.size.x * 0.5 || abs_pos.y > map.size.y * 0.5 {
 			cmds.run_system_cached_with(end_level, GameResult::OutOfBounds);
-			next_state.set(GameState::LevelEnd);
 		}
 	}
 }

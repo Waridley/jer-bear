@@ -445,7 +445,7 @@ pub fn insert_loaded_map(
 }
 
 #[derive(Component, Debug)]
-#[require(Sprite, StateScoped::<GameState>(GameState::LevelEnd))]
+#[require(Sprite)]
 pub struct Background;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]

@@ -3,20 +3,34 @@
 	(
 		name: "Infinity",
 		map: "maps/inf.ron",
+		goal: Bees(200),
+		waves: [
+			(portals: [()]),
+		],
+	),
+	(
+		name: "Infinitiy 2",
+		map: "maps/inf.ron",
+		goal: MaxMissed(600),
+		duration: (secs: 60, nanos: 0),
 		waves: [
 			(portals: [()]),
 		],
 	),
 	(
 		name: "Jeremy Bearimy",
-		map: "jeremy_bearimy.ron",
+		map: "maps/jeremy_bearimy.ron",
+		goal: Bees(1000),
+		duration: (secs: 300, nanos: 0),
 		waves: [
 			(portals: [()]),
 		],
 	),
 	(
 		name: "JerBear Slippery",
-		map: "jeremy_bearimy.ron",
+		map: "maps/jeremy_bearimy.ron",
+		goal: Bees(1000),
+		duration: (secs: 300, nanos: 0),
 		waves: [
 			(portals: [()]),
 		],
