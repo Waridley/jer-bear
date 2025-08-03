@@ -1,5 +1,5 @@
 use crate::GameState;
-use crate::levels::Level;
+use crate::levels::{Goal, Level};
 use crate::player::spawn_player;
 use crate::stats::LevelStats;
 use bevy::color::palettes::basic::YELLOW;
@@ -21,51 +21,95 @@ impl Plugin for HudPlugin {
 	}
 }
 
-pub fn spawn_display(mut cmds: Commands, server: Res<AssetServer>) {
+pub fn spawn_display(mut cmds: Commands, server: Res<AssetServer>, level: Res<Level>) {
 	let font = server.load::<Font>("ShareTechMono-Regular.ttf");
 	let font = TextFont {
 		font,
 		font_size: 24.0,
 		..default()
 	};
-	let panel = (
+	let panel = Node {
+		min_width: Val::Px(180.0),
+		height: Val::Px(40.0),
+		align_items: AlignItems::Center,
+		justify_content: JustifyContent::Center,
+		..default()
+	};
+	let bg_color = BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.7));
+	let scope = StateScoped::<GameState>(GameState::LevelEnd);
+	
+	cmds.spawn((
 		Node {
-			min_width: Val::Px(180.0),
-			height: Val::Px(40.0),
-			align_items: AlignItems::Center,
-			justify_content: JustifyContent::Center,
+			min_width: Val::Px(120.0),
+			position_type: PositionType::Absolute,
+			top: Val::Px(10.0),
+			justify_self: JustifySelf::Center,
+			..panel.clone()
+		},
+		bg_color,
+		Outline {
+			width: Val::Px(2.0),
+			color:if let Goal::Time = level.goal {
+				Color::WHITE
+			} else {
+				Color::NONE
+			},
 			..default()
 		},
-		BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.7)),
-		StateScoped::<GameState>(GameState::LevelEnd),
-	);
+		scope.clone(),
+	))
+		.with_child((TimeDisplay, Text("0.00".into()), font.clone()));
+	
 	cmds.spawn(Node {
-		width: Val::Percent(100.0),
-		flex_direction: FlexDirection::Row,
-		justify_content: JustifyContent::SpaceBetween,
+		flex_direction: FlexDirection::Column,
+		position_type: PositionType::Absolute,
+		top: Val::Px(10.0),
+		right: Val::Px(10.0),
 		..default()
-	})
-	.with_children(|cmds| {
-		cmds.spawn(panel.clone())
-			.with_child((TimeDisplay, Text("0.00".into()), font.clone()));
+	}).with_children(|cmds| {
+		cmds.spawn((
+			panel.clone(),
+			bg_color,
+			Outline {
+				width: Val::Px(2.0),
+				color:if let Goal::Bees(_) = level.goal {
+					Color::WHITE
+				} else {
+					Color::NONE
+				},
+				..default()
+			},
+			scope.clone(),
+		)).with_child((
+			KilledBeesDisplay,
+			Text("Killed: 0".into()),
+			font.clone(),
+			TextColor(YELLOW.into()),
+		));
 		cmds.spawn(Node {
-			flex_direction: FlexDirection::Column,
+			width: Val::Px(100.0),
+			height: Val::Px(10.0),
 			..default()
-		})
-		.with_children(|cmds| {
-			cmds.spawn(panel.clone()).with_child((
-				KilledBeesDisplay,
-				Text("Killed: 0".into()),
-				font.clone(),
-				TextColor(YELLOW.into()),
-			));
-			cmds.spawn(panel).with_child((
-				MissedBeesDisplay,
-				Text("Missed: 0".into()),
-				font,
-				TextColor(ORANGE.into()),
-			));
 		});
+		cmds.spawn((
+			panel,
+			bg_color,
+			Outline {
+				width: Val::Px(2.0),
+				color:if let Goal::MaxMissed(_) = level.goal {
+					Color::WHITE
+				} else {
+					Color::NONE
+				},
+				..default()
+			},
+			scope,
+		)).with_child((
+			MissedBeesDisplay,
+			Text("Missed: 0".into()),
+			font,
+			TextColor(ORANGE.into()),
+		));
 	});
 }
 
