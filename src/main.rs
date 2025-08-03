@@ -8,6 +8,7 @@ fn main() {
 			DefaultPlugins.set(WindowPlugin {
 				primary_window: Some(Window {
 					title: "Jeremy Bearimy".into(),
+					resolution: (960.0, 540.0).into(),
 					..default()
 				}),
 				..default()

@@ -70,9 +70,12 @@ pub struct SaveDir(pub PathBuf);
 impl Default for SaveDir {
 	fn default() -> Self {
 		Self(
+			#[cfg(not(target_arch = "wasm32"))]
 			dirs::data_dir()
 				.map(|dir| dir.join("waridley/jeremy-bearimy"))
 				.unwrap_or_else(|| "./saves".into()),
+			#[cfg(target_arch = "wasm32")]
+			"local".into(),
 		)
 	}
 }
@@ -83,9 +86,12 @@ pub struct ConfigDir(pub PathBuf);
 impl Default for ConfigDir {
 	fn default() -> Self {
 		Self(
+			#[cfg(not(target_arch = "wasm32"))]
 			dirs::config_dir()
 				.map(|dir| dir.join("waridley/jeremy-bearimy"))
 				.unwrap_or_else(|| "./config".into()),
+			#[cfg(target_arch = "wasm32")]
+			"local".into(),
 		)
 	}
 }

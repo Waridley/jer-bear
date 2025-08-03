@@ -11,7 +11,10 @@ impl Plugin for LevelSelectPlugin {
 		app.add_systems(OnEnter(GameState::LevelSelect), show_level_select)
 			.add_systems(
 				Update,
-				handle_level_selection_btn.run_if(in_state(GameState::LevelSelect)),
+				(
+					handle_level_selection_btn,
+					handle_back_btn,
+				).run_if(in_state(GameState::LevelSelect)),
 			);
 	}
 }
@@ -29,6 +32,25 @@ pub fn show_level_select(
 		font_size: 24.0,
 		..default()
 	};
+	
+	cmds.spawn((
+		BackButton,
+		Button,
+		Node {
+			position_type: PositionType::Absolute,
+			top: Val::Px(10.0),
+			left: Val::Px(10.0),
+			align_items: AlignItems::Center,
+			justify_content: JustifyContent::Center,
+			padding: UiRect::all(Val::Px(10.0)),
+			..default()
+		},
+		BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.7)),
+		StateScoped::<GameState>(GameState::LevelSelect),
+	)).with_child((
+		Text("Back".into()),
+		font.clone(),
+	));
 	
 	cmds.spawn((
 		Node {
@@ -72,5 +94,17 @@ pub fn handle_level_selection_btn(
 			cmds.remove_resource::<Level>();
 			cmds.insert_resource(level_list.0[**btn.1].clone());
 		}
+	}
+}
+
+#[derive(Component, Debug, Copy, Clone)]
+pub struct BackButton;
+
+pub fn handle_back_btn(
+	interaction: Single<&Interaction, With<BackButton>>,
+	mut next_state: ResMut<NextState<GameState>>,
+) {
+	if **interaction == Interaction::Pressed {
+		next_state.set(GameState::MainMenu);
 	}
 }

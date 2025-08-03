@@ -33,6 +33,7 @@ pub fn spawn_display(mut cmds: Commands, server: Res<AssetServer>, level: Res<Le
 		height: Val::Px(40.0),
 		align_items: AlignItems::Center,
 		justify_content: JustifyContent::Center,
+		padding: UiRect::all(Val::Px(10.0)),
 		..default()
 	};
 	let bg_color = BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.7));
@@ -125,8 +126,16 @@ pub fn update_stats_display(
 ) {
 	let rem = level.duration.checked_sub(stats.time).unwrap_or_default();
 	time_display.0 = format!("{:.2}", rem.as_secs_f32());
-	bee_count_display.0 = format!("Killed: {}", stats.killed_bees);
-	missed_bees_display.0 = format!("Missed: {}", stats.missed_bees);
+	let bee_goal = match level.goal {
+		Goal::Bees(n) => format!("/{n}"),
+		_ => "".to_owned(),
+	};
+	bee_count_display.0 = format!("Killed: {}{}", stats.killed_bees, bee_goal);
+	let missed_goal = match level.goal {
+		Goal::MaxMissed(n) => format!("/{n}"),
+		_ => "".to_owned(),
+	};
+	missed_bees_display.0 = format!("Missed: {}{}", stats.missed_bees, missed_goal);
 }
 
 #[derive(Component, Debug, Copy, Clone)]
