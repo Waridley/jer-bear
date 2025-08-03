@@ -437,6 +437,7 @@ pub fn insert_loaded_map(
 					custom_size: Some(map.size),
 					..default()
 				},
+				Transform::from_xyz(0.0, 0.0, -100.0),
 			));
 			cmds.insert_resource(map);
 		}
@@ -475,10 +476,7 @@ pub struct TimelinePosition {
 
 impl Default for TimelinePosition {
 	fn default() -> Self {
-		Self {
-			t: 0.0,
-			speed: 0.5,
-		}
+		Self { t: 0.0, speed: 0.5 }
 	}
 }
 

@@ -13,12 +13,14 @@ fn main() {
 				..default()
 			}),
 			bees::BeesPlugin,
+			hud::HudPlugin,
 			levels::LevelsPlugin,
 			loading::LoadingPlugin,
 			main_menu::MainMenuPlugin,
 			map::MapPlugin,
 			player::PlayerPlugin,
 			portals::PortalsPlugin,
+			stats::StatsPlugin,
 			SplashPlugin,
 		))
 		.init_state::<GameState>()

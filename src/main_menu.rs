@@ -1,7 +1,7 @@
 use crate::GameState;
-use crate::levels::{Level, LevelList};
-use bevy::prelude::*;
+use crate::levels::LevelList;
 use crate::stats::RunStats;
+use bevy::prelude::*;
 
 pub struct MainMenuPlugin;
 
@@ -11,10 +11,7 @@ impl Plugin for MainMenuPlugin {
 	}
 }
 
-pub fn show_main_menu(
-	mut cmds: Commands,
-	level_list: Res<LevelList>,
-) {
+pub fn show_main_menu(mut cmds: Commands, level_list: Res<LevelList>) {
 	info!("Showing main menu");
 	// TODO: Show main menu
 	info!("Loading default level");

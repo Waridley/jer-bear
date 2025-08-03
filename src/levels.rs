@@ -1,14 +1,15 @@
-use std::sync::OnceLock;
 use crate::GameState;
 use crate::loading::LoadingTasks;
 use crate::map::Map;
-use crate::portals::{Portal, PortalDescriptor, SpawnedItem};
+use crate::player::PlayerSpeedParams;
+use crate::portals::{PortalDescriptor, PortalSwirls};
+use crate::stats::{GameResult, LevelStats, RunStats, end_level};
 use bevy::asset::{AssetPath, ReflectAsset};
 use bevy::prelude::*;
 use bevy_common_assets::ron::RonAssetPlugin;
 use serde::{Deserialize, Serialize};
-use crate::player::PlayerSpeedParams;
-use crate::stats::{LevelStats, RunStats};
+use std::sync::OnceLock;
+use std::time::Duration;
 
 pub struct LevelsPlugin;
 
@@ -16,23 +17,31 @@ pub static LEVEL_LIST_HANDLE: OnceLock<Handle<LevelList>> = OnceLock::new();
 
 impl Plugin for LevelsPlugin {
 	fn build(&self, app: &mut App) {
-		app
-			.add_plugins(RonAssetPlugin::<LevelList>::new(&["ron"]))
+		app.add_plugins(RonAssetPlugin::<LevelList>::new(&["ron"]))
 			.init_asset::<LevelList>()
 			.register_asset_reflect::<LevelList>()
-			.add_systems(First, (
-				load_level.run_if(resource_added::<Level>),
-				insert_loaded_level_list.run_if(not(resource_exists::<LevelList>)),
-			))
+			.add_systems(
+				First,
+				(
+					load_level.run_if(resource_added::<Level>),
+					insert_loaded_level_list.run_if(not(resource_exists::<LevelList>)),
+				),
+			)
 			.add_systems(
 				Update,
 				check_level_loading_progress.run_if(in_state(GameState::Loading)),
 			)
+			.add_systems(Last, check_goal.run_if(in_state(GameState::Playing)))
 			.add_systems(OnEnter(GameState::Playing), start_wave)
 			.add_systems(OnEnter(GameState::LevelEnd), show_level_end_screen)
 			.add_systems(OnExit(GameState::LevelEnd), on_exit_level_end);
-		
-		LEVEL_LIST_HANDLE.set(app.world().resource::<AssetServer>().load("levels/level_list.ron"))
+
+		LEVEL_LIST_HANDLE
+			.set(
+				app.world()
+					.resource::<AssetServer>()
+					.load("levels/level_list.ron"),
+			)
 			.expect("no other calls to set");
 	}
 }
@@ -47,6 +56,8 @@ pub struct Level {
 	#[reflect(ignore)]
 	#[serde(skip)]
 	pub map_handle: Handle<Map>,
+	pub goal: Goal,
+	pub duration: Duration,
 	pub waves: Vec<Wave>,
 	pub current_wave: usize,
 	pub player_speed_params: PlayerSpeedParams,
@@ -59,6 +70,8 @@ impl Default for Level {
 			map: AssetPath::from("maps/map.ron"),
 			scene: AssetPath::from("levels/empty.scn.ron"),
 			map_handle: Handle::default(),
+			goal: Goal::Bees(500),
+			duration: Duration::from_secs(120),
 			waves: vec![Wave {
 				portals: vec![PortalDescriptor::default()],
 			}],
@@ -101,16 +114,35 @@ pub fn check_level_loading_progress(
 	}
 }
 
-pub fn start_wave(mut cmds: Commands, level: Res<Level>) {
+pub fn start_wave(mut cmds: Commands, level: Res<Level>, server: Res<AssetServer>) {
 	level.waves[level.current_wave]
 		.portals
 		.iter()
 		.for_each(|portal| {
-			cmds.spawn(portal.bundle());
+			cmds.spawn((
+				portal.bundle(),
+				Sprite {
+					// TODO: Load this in loading state
+					image: server.load("portal.png"),
+					..default()
+				},
+			))
+			.with_child((
+				PortalSwirls,
+				Sprite {
+					// TODO: Load this in loading state
+					image: server.load("portal_swirls.png"),
+					..default()
+				},
+			));
 		});
 }
 
-pub fn show_level_end_screen(stats: Res<LevelStats>, run_stats: Res<RunStats>, mut next_state: ResMut<NextState<GameState>>) {
+pub fn show_level_end_screen(
+	stats: Res<LevelStats>,
+	run_stats: Res<RunStats>,
+	mut next_state: ResMut<NextState<GameState>>,
+) {
 	info!("{stats:#?}");
 	info!("{run_stats:#?}");
 	// TODO: Show level end screen
@@ -122,18 +154,52 @@ pub fn on_exit_level_end(mut cmds: Commands) {
 	cmds.remove_resource::<Map>();
 }
 
-#[derive(Resource, Asset, Debug, Default, Clone, Deref, DerefMut, Reflect, Serialize, Deserialize)]
+#[derive(
+	Resource, Asset, Debug, Default, Clone, Deref, DerefMut, Reflect, Serialize, Deserialize,
+)]
 #[reflect(Resource, Asset, Default, Serialize, Deserialize)]
 pub struct LevelList(pub Vec<Level>);
 
-pub fn insert_loaded_level_list(
-	mut cmds: Commands,
-	assets: Res<Assets<LevelList>>,
-) {
+pub fn insert_loaded_level_list(mut cmds: Commands, assets: Res<Assets<LevelList>>) {
 	let handle = LEVEL_LIST_HANDLE.get().unwrap().clone();
 	let Some(level_list) = assets.get(handle.id()) else {
 		return;
 	};
 	info!("{level_list:#?}");
 	cmds.insert_resource(level_list.clone());
+}
+
+#[derive(Reflect, Debug, Clone, Copy, Serialize, Deserialize)]
+#[reflect(Debug, Serialize, Deserialize)]
+pub enum Goal {
+	/// Win by avoiding going out of bounds for the duration of the level.
+	Time,
+	/// Kill this many bees.
+	Bees(u32),
+	/// Don't miss this many bees.
+	MaxMissed(u32),
+}
+
+pub fn check_goal(mut cmds: Commands, level: Res<Level>, stats: Res<LevelStats>) {
+	match level.goal {
+		Goal::Time => {
+			if stats.time >= level.duration {
+				cmds.run_system_cached_with(end_level, GameResult::Win);
+			}
+		}
+		Goal::Bees(n) => {
+			if stats.killed_bees >= n {
+				cmds.run_system_cached_with(end_level, GameResult::Win);
+			} else if stats.time >= level.duration {
+				cmds.run_system_cached_with(end_level, GameResult::TimedOut);
+			}
+		}
+		Goal::MaxMissed(n) => {
+			if stats.missed_bees >= n {
+				cmds.run_system_cached_with(end_level, GameResult::MissedTooMany);
+			} else if stats.time >= level.duration {
+				cmds.run_system_cached_with(end_level, GameResult::Win);
+			}
+		}
+	}
 }

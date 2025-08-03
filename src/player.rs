@@ -1,11 +1,11 @@
 use crate::GameState;
+use crate::levels::Level;
 use crate::loading::{LoadingTaskHandle, LoadingTasks};
 use crate::map::Map;
+use crate::stats::{GameResult, end_level};
 use bevy::prelude::*;
 use bevy::render::camera;
 use serde::{Deserialize, Serialize};
-use crate::levels::Level;
-use crate::stats::{end_level, GameResult};
 
 pub const BASE_PLAYER_MAX_VELOCITY: f32 = 2000.0;
 pub const BASE_PLAYER_ACCEL: f32 = 500.0;
@@ -61,26 +61,29 @@ impl PlayerAssets {
 }
 
 pub fn spawn_player(mut cmds: Commands, assets: Res<PlayerAssets>) {
-	cmds.spawn(Avatar)
-		.with_children(|cmds| {
-			cmds.spawn((
-				Blades { spin_speed: -24.0 },
-				Sprite {
-					image: assets.blades.clone(),
-					..default()
+	cmds.spawn(Avatar).with_children(|cmds| {
+		cmds.spawn((
+			Blades {
+				radius: 48.0,
+				spin_speed: -24.0,
+			},
+			Sprite {
+				image: assets.blades.clone(),
+				..default()
+			},
+			Transform::from_xyz(0.0, 0.0, 100.0),
+		));
+		cmds.spawn((
+			Camera2d,
+			Projection::Orthographic(OrthographicProjection {
+				scaling_mode: camera::ScalingMode::Fixed {
+					width: 1920.0,
+					height: 1080.0,
 				},
-			));
-			cmds.spawn((
-				Camera2d,
-				Projection::Orthographic(OrthographicProjection {
-					scaling_mode: camera::ScalingMode::Fixed {
-						width: 1920.0,
-						height: 1080.0,
-					},
-					..OrthographicProjection::default_2d()
-				}),
-			));
-		});
+				..OrthographicProjection::default_2d()
+			}),
+		));
+	});
 }
 
 #[derive(Component, Debug, Default, Copy, Clone, Reflect)]
@@ -115,7 +118,7 @@ pub fn player_movement(
 			accel,
 			velocity_decay,
 		} = level.player_speed_params;
-		
+
 		vel.0 *= 1.0 - t.delta_secs() * velocity_decay;
 		vel.0 += delta * t.delta_secs() * accel;
 		vel.0 = vel.0.clamp_length_max(max_velocity);
@@ -149,10 +152,7 @@ impl Default for PlayerSpeedParams {
 	}
 }
 
-pub fn spin_blades(
-	mut query: Query<(&mut Transform, &Blades)>,
-	t: Res<Time>,
-) {
+pub fn spin_blades(mut query: Query<(&mut Transform, &Blades)>, t: Res<Time>) {
 	for (mut xform, blades) in &mut query {
 		xform.rotate_z(t.delta_secs() * blades.spin_speed);
 	}
@@ -160,5 +160,6 @@ pub fn spin_blades(
 
 #[derive(Component, Debug, Default, Copy, Clone)]
 pub struct Blades {
-	spin_speed: f32,
+	pub radius: f32,
+	pub spin_speed: f32,
 }
