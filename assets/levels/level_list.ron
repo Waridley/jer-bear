@@ -18,6 +18,15 @@
 		],
 	),
 	(
+		name: "Heart",
+		map: "maps/heart.ron",
+		goal: Time,
+		duration: (secs: 60, nanos: 0),
+		waves: [
+			(portals: [()]),
+		],
+	),
+	(
 		name: "Jeremy Bearimy",
 		map: "maps/jeremy_bearimy.ron",
 		goal: Bees(1000),
@@ -36,8 +45,8 @@
 		],
 		player_speed_params: (
 			max_velocity: 4000.0,
-			accel: 1000.0,
-			velocity_decay: 0.2,
+			accel: 2000.0,
+			velocity_decay: 0.1,
 		),
 	),
 ]
